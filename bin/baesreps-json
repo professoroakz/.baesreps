@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# baesreps-json - JSON parsing utility for .baesreps
+# Simple JSON value extraction without external dependencies
+#
+# Usage: baesreps-json <file> <key>
+
+get_json_value() {
+    local file="$1"
+    local key="$2"
+    local json_content
+    
+    if [ ! -f "$file" ]; then
+        echo ""
+        return 1
+    fi
+    
+    json_content=$(cat "$file" | tr '\n' ' ')
+    
+    # Try to extract string value
+    local value=$(echo "$json_content" | grep -oP "\"$key\"\s*:\s*\"\K[^\"]+")
+    if [ -n "$value" ]; then
+        echo "$value"
+        return 0
+    fi
+    
+    # Try to extract numeric value
+    value=$(echo "$json_content" | grep -oP "\"$key\"\s*:\s*\K[0-9]+")
+    if [ -n "$value" ]; then
+        echo "$value"
+        return 0
+    fi
+    
+    # Try to extract null value
+    value=$(echo "$json_content" | grep -oP "\"$key\"\s*:\s*\Knull")
+    if [ -n "$value" ]; then
+        echo "null"
+        return 0
+    fi
+    
+    echo ""
+}
+
+# If script is called directly, parse args
+if [ "$1" = "get" ] && [ -n "$2" ] && [ -n "$3" ]; then
+    get_json_value "$2" "$3"
+fi

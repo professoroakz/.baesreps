@@ -1,0 +1,383 @@
+#!/usr/bin/env bash
+# baesreps-card - Card management for .baesreps
+# Manage minimal cards for reps (points in reality)
+#
+# Cards represent the smallest unit of work that can earn points
+#
+# Usage: baesreps-card <command> [args]
+
+set -e
+
+BAESREPS_PROJECTS_DIR="${BAESREPS_PROJECTS_DIR:-$HOME/projects}"
+BAESREPS_CARDS_DIR="${BAESREPS_CARDS_DIR:-$HOME/cards}"
+
+# Color codes
+PURPLE='\033[0;35m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+CYAN='\033[0;36m'
+RED='\033[0;31m'
+NC='\033[0m'
+
+# =============================================================================
+# INPUT VALIDATION
+# =============================================================================
+
+validate_name() {
+    local name="$1"
+    if [ -z "$name" ]; then
+        echo -e "${RED}Error: Name cannot be empty${NC}" >&2
+        return 1
+    fi
+    if [[ "$name" == *".."* ]] || [[ "$name" == *"/"* ]] || [[ "$name" == *"\\"* ]]; then
+        echo -e "${RED}Error: Name cannot contain path traversal characters${NC}" >&2
+        return 1
+    fi
+    if [[ "$name" =~ [^a-zA-Z0-9_-] ]]; then
+        echo -e "${RED}Error: Name can only contain alphanumeric characters, underscores, and hyphens${NC}" >&2
+        return 1
+    fi
+    return 0
+}
+
+validate_points() {
+    local points="$1"
+    if ! [[ "$points" =~ ^[0-9]+$ ]]; then
+        echo -e "${RED}Error: Points must be a positive integer${NC}" >&2
+        return 1
+    fi
+    return 0
+}
+
+json_escape() {
+    local str="$1"
+    str="${str//\\/\\\\}"
+    str="${str//\"/\\\"}"
+    printf '%s' "$str"
+}
+
+# =============================================================================
+# HELPER FUNCTIONS
+# =============================================================================
+
+generate_card_id() {
+    echo "card-$(date +%s)-$RANDOM"
+}
+
+update_project_points() {
+    local project="$1"
+    local project_file="$BAESREPS_PROJECTS_DIR/$project/project.json"
+    
+    if [ ! -f "$project_file" ]; then
+        return 0
+    fi
+    
+    # Calculate total points for the project
+    local total=0
+    if [ -d "$BAESREPS_CARDS_DIR" ]; then
+        while IFS= read -r -d '' card; do
+            if grep -q "\"project\":\"$project\"" "$card"; then
+                local pts=$(grep -o '"points":[^,}]*' "$card" | cut -d: -f2 | tr -d ' ')
+                if [ -n "$pts" ]; then
+                    total=$((total + pts))
+                fi
+            fi
+        done < <(find "$BAESREPS_CARDS_DIR" -maxdepth 1 -name "*.json" -print0 2>/dev/null)
+    fi
+    
+    # Update project total_points
+    local tmp_file=$(mktemp)
+    sed "s/\"total_points\":[^,}]*/\"total_points\":$total/" "$project_file" > "$tmp_file"
+    mv "$tmp_file" "$project_file"
+}
+
+# =============================================================================
+# COMMANDS
+# =============================================================================
+
+cmd_add() {
+    local project="$1"
+    local name="$2"
+    local points="${3:-1}"
+    local description="${4:-No description}"
+    
+    if ! validate_name "$project"; then
+        return 1
+    fi
+    
+    if ! validate_name "$name"; then
+        return 1
+    fi
+    
+    if ! validate_points "$points"; then
+        return 1
+    fi
+    
+    mkdir -p "$BAESREPS_CARDS_DIR"
+    
+    local card_id=$(generate_card_id)
+    local escaped_name=$(json_escape "$name")
+    local escaped_desc=$(json_escape "$description")
+    local escaped_project=$(json_escape "$project")
+    
+    echo -e "${PURPLE}🃏 Creating card: $name (${points} pts)${NC}"
+    
+    cat > "$BAESREPS_CARDS_DIR/$card_id.json" << EOF
+{
+    "id": "$card_id",
+    "name": "$escaped_name",
+    "project": "$escaped_project",
+    "description": "$escaped_desc",
+    "points": $points,
+    "status": "pending",
+    "created": "$(date -Iseconds)",
+    "completed": null
+}
+EOF
+    
+    # Update project total
+    update_project_points "$project"
+    
+    echo -e "${GREEN}✅ Card created: $card_id${NC}"
+    echo "   Project: $project"
+    echo "   Points: $points"
+}
+
+cmd_list() {
+    local project="$1"
+    
+    echo -e "${PURPLE}🃏 Cards:${NC}"
+    
+    if [ ! -d "$BAESREPS_CARDS_DIR" ]; then
+        echo "  No cards found"
+        return 0
+    fi
+    
+    local found=0
+    while IFS= read -r -d '' card; do
+        # Filter by project if specified
+        if [ -n "$project" ]; then
+            if ! grep -q "\"project\": \"$project\"" "$card" && ! grep -q "\"project\":\"$project\"" "$card"; then
+                continue
+            fi
+        fi
+        
+        # Use tr to remove newlines for easier parsing
+        local json_content=$(cat "$card" | tr '\n' ' ')
+        local card_name=$(echo "$json_content" | grep -oP '"name"\s*:\s*"\K[^"]+')
+        local card_project=$(echo "$json_content" | grep -oP '"project"\s*:\s*"\K[^"]+')
+        local card_points=$(echo "$json_content" | grep -oP '"points"\s*:\s*\K[0-9]+')
+        local card_status=$(echo "$json_content" | grep -oP '"status"\s*:\s*"\K[^"]+')
+        
+        local status_icon="⏳"
+        case "$card_status" in
+            completed) status_icon="✅" ;;
+            in_progress) status_icon="🔄" ;;
+            blocked) status_icon="🚫" ;;
+        esac
+        
+        echo -e "  $status_icon ${CYAN}$card_name${NC} (${card_points} pts) - $card_project [$card_status]"
+        found=1
+    done < <(find "$BAESREPS_CARDS_DIR" -maxdepth 1 -name "*.json" -print0 2>/dev/null)
+    
+    if [ $found -eq 0 ]; then
+        echo "  No cards found"
+    fi
+}
+
+cmd_show() {
+    local card_id="$1"
+    
+    if [ -z "$card_id" ]; then
+        echo -e "${RED}Error: Card ID required${NC}"
+        return 1
+    fi
+    
+    local card_file="$BAESREPS_CARDS_DIR/$card_id.json"
+    
+    if [ ! -f "$card_file" ]; then
+        echo -e "${RED}Card not found: $card_id${NC}"
+        return 1
+    fi
+    
+    echo -e "${PURPLE}🃏 Card Details:${NC}"
+    echo "---"
+    cat "$card_file"
+    echo ""
+}
+
+cmd_complete() {
+    local card_id="$1"
+    
+    if [ -z "$card_id" ]; then
+        echo -e "${RED}Error: Card ID required${NC}"
+        return 1
+    fi
+    
+    local card_file="$BAESREPS_CARDS_DIR/$card_id.json"
+    
+    if [ ! -f "$card_file" ]; then
+        echo -e "${RED}Card not found: $card_id${NC}"
+        return 1
+    fi
+    
+    echo -e "${GREEN}✅ Completing card: $card_id${NC}"
+    
+    local tmp_file=$(mktemp)
+    # Handle both compact and pretty-printed JSON
+    sed -e 's/"status"\s*:\s*"[^"]*"/"status": "completed"/' \
+        -e "s/\"completed\"\s*:\s*null/\"completed\": \"$(date -Iseconds)\"/" \
+        "$card_file" > "$tmp_file"
+    mv "$tmp_file" "$card_file"
+    
+    # Get project and update points using proper JSON parsing
+    local json_content=$(cat "$card_file" | tr '\n' ' ')
+    local project=$(echo "$json_content" | grep -oP '"project"\s*:\s*"\K[^"]+')
+    if [ -n "$project" ]; then
+        update_project_points "$project"
+    fi
+    
+    local points=$(echo "$json_content" | grep -oP '"points"\s*:\s*\K[0-9]+')
+    echo -e "   ${CYAN}+$points points earned!${NC}"
+}
+
+cmd_update() {
+    local card_id="$1"
+    local field="$2"
+    local value="$3"
+    
+    if [ -z "$card_id" ] || [ -z "$field" ] || [ -z "$value" ]; then
+        echo -e "${RED}Error: Usage: baesreps-card update <card-id> <field> <value>${NC}"
+        return 1
+    fi
+    
+    local card_file="$BAESREPS_CARDS_DIR/$card_id.json"
+    
+    if [ ! -f "$card_file" ]; then
+        echo -e "${RED}Card not found: $card_id${NC}"
+        return 1
+    fi
+    
+    case "$field" in
+        points)
+            if ! validate_points "$value"; then
+                return 1
+            fi
+            local tmp_file=$(mktemp)
+            sed "s/\"points\":[^,}]*/\"points\":$value/" "$card_file" > "$tmp_file"
+            mv "$tmp_file" "$card_file"
+            ;;
+        status)
+            local tmp_file=$(mktemp)
+            sed "s/\"status\":\"[^\"]*\"/\"status\":\"$value\"/" "$card_file" > "$tmp_file"
+            mv "$tmp_file" "$card_file"
+            ;;
+        *)
+            echo -e "${RED}Unknown field: $field (use: points, status)${NC}"
+            return 1
+            ;;
+    esac
+    
+    echo -e "${GREEN}✅ Card updated: $card_id${NC}"
+    
+    # Update project points if we changed points
+    if [ "$field" = "points" ]; then
+        local project=$(grep -o '"project":"[^"]*"' "$card_file" | cut -d: -f2 | tr -d '"')
+        if [ -n "$project" ]; then
+            update_project_points "$project"
+        fi
+    fi
+}
+
+cmd_delete() {
+    local card_id="$1"
+    
+    if [ -z "$card_id" ]; then
+        echo -e "${RED}Error: Card ID required${NC}"
+        return 1
+    fi
+    
+    local card_file="$BAESREPS_CARDS_DIR/$card_id.json"
+    
+    if [ ! -f "$card_file" ]; then
+        echo -e "${RED}Card not found: $card_id${NC}"
+        return 1
+    fi
+    
+    # Get project before deleting
+    local project=$(grep -o '"project":"[^"]*"' "$card_file" | cut -d: -f2 | tr -d '"')
+    
+    echo -e "${RED}🗑️  Deleting card: $card_id${NC}"
+    rm -f "$card_file"
+    
+    # Update project points
+    if [ -n "$project" ]; then
+        update_project_points "$project"
+    fi
+    
+    echo -e "${GREEN}✅ Card deleted${NC}"
+}
+
+show_help() {
+    echo -e "${PURPLE}💜 .baesreps Card Manager${NC}"
+    echo "Manage minimal cards for reps (points in reality)"
+    echo ""
+    echo "Usage: baesreps-card <command> [args]"
+    echo ""
+    echo "Commands:"
+    echo "  add <project> <name> [points] [desc]  - Add a card to a project"
+    echo "  list [project]                        - List all cards or cards for a project"
+    echo "  show <card-id>                        - Show card details"
+    echo "  complete <card-id>                    - Mark card as completed"
+    echo "  update <card-id> <field> <value>      - Update card field"
+    echo "  delete <card-id>                      - Delete a card"
+    echo "  help                                  - Show this help"
+    echo ""
+    echo "Fields for update: points, status"
+    echo ""
+    echo "Examples:"
+    echo "  baesreps-card add myapp task-1 5 \"Implement feature\""
+    echo "  baesreps-card list myapp"
+    echo "  baesreps-card complete card-1234567890-12345"
+    echo "  baesreps-card update card-1234 points 10"
+}
+
+# =============================================================================
+# MAIN
+# =============================================================================
+
+main() {
+    local cmd="${1:-help}"
+    shift 2>/dev/null || true
+    
+    case "$cmd" in
+        add|create)
+            cmd_add "$@"
+            ;;
+        list)
+            cmd_list "$@"
+            ;;
+        show|get)
+            cmd_show "$@"
+            ;;
+        complete|done)
+            cmd_complete "$@"
+            ;;
+        update|set)
+            cmd_update "$@"
+            ;;
+        delete|remove)
+            cmd_delete "$@"
+            ;;
+        help|--help|-h)
+            show_help
+            ;;
+        *)
+            echo "Unknown command: $cmd"
+            echo "Run 'baesreps-card help' for usage."
+            exit 1
+            ;;
+    esac
+}
+
+main "$@"

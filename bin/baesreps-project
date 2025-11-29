@@ -1,0 +1,244 @@
+#!/usr/bin/env bash
+# baesreps-project - Project management for .baesreps
+# Manage projects with point tracking
+#
+# Usage: baesreps-project <command> [args]
+
+set -e
+
+BAESREPS_PROJECTS_DIR="${BAESREPS_PROJECTS_DIR:-$HOME/projects}"
+BAESREPS_CARDS_DIR="${BAESREPS_CARDS_DIR:-$HOME/cards}"
+
+# Color codes
+PURPLE='\033[0;35m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+CYAN='\033[0;36m'
+RED='\033[0;31m'
+NC='\033[0m'
+
+# =============================================================================
+# INPUT VALIDATION
+# =============================================================================
+
+validate_name() {
+    local name="$1"
+    if [ -z "$name" ]; then
+        echo -e "${RED}Error: Name cannot be empty${NC}" >&2
+        return 1
+    fi
+    if [[ "$name" == *".."* ]] || [[ "$name" == *"/"* ]] || [[ "$name" == *"\\"* ]]; then
+        echo -e "${RED}Error: Name cannot contain path traversal characters${NC}" >&2
+        return 1
+    fi
+    if [[ "$name" =~ [^a-zA-Z0-9_-] ]]; then
+        echo -e "${RED}Error: Name can only contain alphanumeric characters, underscores, and hyphens${NC}" >&2
+        return 1
+    fi
+    return 0
+}
+
+json_escape() {
+    local str="$1"
+    str="${str//\\/\\\\}"
+    str="${str//\"/\\\"}"
+    printf '%s' "$str"
+}
+
+# =============================================================================
+# COMMANDS
+# =============================================================================
+
+cmd_create() {
+    local name="$1"
+    local description="${2:-No description}"
+    
+    if ! validate_name "$name"; then
+        return 1
+    fi
+    
+    mkdir -p "$BAESREPS_PROJECTS_DIR"
+    
+    if [ -d "$BAESREPS_PROJECTS_DIR/$name" ]; then
+        echo -e "${YELLOW}⚠️  Project already exists: $name${NC}"
+        return 1
+    fi
+    
+    echo -e "${PURPLE}📂 Creating project: $name${NC}"
+    mkdir -p "$BAESREPS_PROJECTS_DIR/$name"
+    
+    local escaped_name=$(json_escape "$name")
+    local escaped_desc=$(json_escape "$description")
+    
+    cat > "$BAESREPS_PROJECTS_DIR/$name/project.json" << EOF
+{
+    "name": "$escaped_name",
+    "description": "$escaped_desc",
+    "status": "active",
+    "total_points": 0,
+    "cards": [],
+    "created": "$(date -Iseconds)",
+    "updated": "$(date -Iseconds)"
+}
+EOF
+    
+    echo -e "${GREEN}✅ Project created: $name${NC}"
+}
+
+cmd_list() {
+    echo -e "${PURPLE}📋 Projects:${NC}"
+    
+    if [ ! -d "$BAESREPS_PROJECTS_DIR" ]; then
+        echo "  No projects found"
+        return 0
+    fi
+    
+    local found=0
+    for project_dir in "$BAESREPS_PROJECTS_DIR"/*/; do
+        if [ -f "${project_dir}project.json" ]; then
+            local name=$(basename "$project_dir")
+            local json_content=$(cat "${project_dir}project.json" | tr '\n' ' ')
+            local points=$(echo "$json_content" | grep -oP '"total_points"\s*:\s*\K[0-9]+' || echo 0)
+            local status=$(echo "$json_content" | grep -oP '"status"\s*:\s*"\K[^"]+' || echo "unknown")
+            echo -e "  ${CYAN}$name${NC} - $points points [$status]"
+            found=1
+        fi
+    done
+    
+    if [ $found -eq 0 ]; then
+        echo "  No projects found"
+    fi
+}
+
+cmd_show() {
+    local name="$1"
+    
+    if ! validate_name "$name"; then
+        return 1
+    fi
+    
+    if [ ! -f "$BAESREPS_PROJECTS_DIR/$name/project.json" ]; then
+        echo -e "${RED}Project not found: $name${NC}"
+        return 1
+    fi
+    
+    echo -e "${PURPLE}📂 Project: $name${NC}"
+    echo "---"
+    cat "$BAESREPS_PROJECTS_DIR/$name/project.json"
+    echo ""
+    
+    # List cards for this project
+    echo -e "${CYAN}Cards:${NC}"
+    local card_count=0
+    if [ -d "$BAESREPS_CARDS_DIR" ]; then
+        while IFS= read -r -d '' card; do
+            local json_content=$(cat "$card" | tr '\n' ' ')
+            local card_project=$(echo "$json_content" | grep -oP '"project"\s*:\s*"\K[^"]+')
+            if [ "$card_project" = "$name" ]; then
+                local card_name=$(echo "$json_content" | grep -oP '"name"\s*:\s*"\K[^"]+')
+                local card_points=$(echo "$json_content" | grep -oP '"points"\s*:\s*\K[0-9]+')
+                local card_status=$(echo "$json_content" | grep -oP '"status"\s*:\s*"\K[^"]+')
+                echo -e "  - ${card_name} (${card_points} pts) [$card_status]"
+                card_count=$((card_count + 1))
+            fi
+        done < <(find "$BAESREPS_CARDS_DIR" -maxdepth 1 -name "*.json" -print0 2>/dev/null)
+    fi
+    
+    if [ $card_count -eq 0 ]; then
+        echo "  No cards found"
+    fi
+}
+
+cmd_archive() {
+    local name="$1"
+    
+    if ! validate_name "$name"; then
+        return 1
+    fi
+    
+    if [ ! -f "$BAESREPS_PROJECTS_DIR/$name/project.json" ]; then
+        echo -e "${RED}Project not found: $name${NC}"
+        return 1
+    fi
+    
+    echo -e "${YELLOW}📦 Archiving project: $name${NC}"
+    
+    # Update status to archived
+    local tmp_file=$(mktemp)
+    sed 's/"status":"[^"]*"/"status":"archived"/' "$BAESREPS_PROJECTS_DIR/$name/project.json" > "$tmp_file"
+    mv "$tmp_file" "$BAESREPS_PROJECTS_DIR/$name/project.json"
+    
+    echo -e "${GREEN}✅ Project archived: $name${NC}"
+}
+
+cmd_delete() {
+    local name="$1"
+    
+    if ! validate_name "$name"; then
+        return 1
+    fi
+    
+    if [ ! -d "$BAESREPS_PROJECTS_DIR/$name" ]; then
+        echo -e "${RED}Project not found: $name${NC}"
+        return 1
+    fi
+    
+    echo -e "${RED}🗑️  Deleting project: $name${NC}"
+    rm -rf "$BAESREPS_PROJECTS_DIR/$name"
+    echo -e "${GREEN}✅ Project deleted: $name${NC}"
+}
+
+show_help() {
+    echo -e "${PURPLE}💜 .baesreps Project Manager${NC}"
+    echo "Usage: baesreps-project <command> [args]"
+    echo ""
+    echo "Commands:"
+    echo "  create <name> [desc]  - Create a new project"
+    echo "  list                  - List all projects"
+    echo "  show <name>           - Show project details"
+    echo "  archive <name>        - Archive a project"
+    echo "  delete <name>         - Delete a project"
+    echo "  help                  - Show this help"
+    echo ""
+    echo "Examples:"
+    echo "  baesreps-project create myapp \"My awesome app\""
+    echo "  baesreps-project list"
+    echo "  baesreps-project show myapp"
+}
+
+# =============================================================================
+# MAIN
+# =============================================================================
+
+main() {
+    local cmd="${1:-help}"
+    shift 2>/dev/null || true
+    
+    case "$cmd" in
+        create)
+            cmd_create "$@"
+            ;;
+        list)
+            cmd_list "$@"
+            ;;
+        show|get|status)
+            cmd_show "$@"
+            ;;
+        archive)
+            cmd_archive "$@"
+            ;;
+        delete|remove)
+            cmd_delete "$@"
+            ;;
+        help|--help|-h)
+            show_help
+            ;;
+        *)
+            echo "Unknown command: $cmd"
+            echo "Run 'baesreps-project help' for usage."
+            exit 1
+            ;;
+    esac
+}
+
+main "$@"

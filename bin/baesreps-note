@@ -1,0 +1,274 @@
+#!/usr/bin/env bash
+# baesreps-note - Note management executable for .baesreps
+# Create notes, journals, and memos
+#
+# Usage: baesreps-note <command> [args]
+
+set -e
+
+BAESREPS_NOTES_DIR="${BAESREPS_NOTES_DIR:-$HOME/notes}"
+
+# Color codes
+PURPLE='\033[0;35m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+CYAN='\033[0;36m'
+RED='\033[0;31m'
+NC='\033[0m'
+
+# =============================================================================
+# COMMANDS
+# =============================================================================
+
+cmd_create() {
+    local content="$*"
+    
+    if [ -z "$content" ]; then
+        echo -e "${RED}Error: Note content required${NC}" >&2
+        return 1
+    fi
+    
+    echo -e "${PURPLE}📝 Creating note...${NC}"
+    mkdir -p "$BAESREPS_NOTES_DIR"
+    local note_file="$BAESREPS_NOTES_DIR/note-$(date +%Y%m%d-%H%M%S).md"
+    
+    cat > "$note_file" << EOF
+# Note - $(date)
+
+$content
+EOF
+    
+    echo -e "${GREEN}✅ Note created: $note_file${NC}"
+}
+
+cmd_journal() {
+    echo -e "${PURPLE}📖 Opening journal for $(date +%Y-%m-%d)...${NC}"
+    mkdir -p "$BAESREPS_NOTES_DIR/journal"
+    local journal_file="$BAESREPS_NOTES_DIR/journal/$(date +%Y-%m-%d).md"
+    
+    if [ ! -f "$journal_file" ]; then
+        cat > "$journal_file" << EOF
+# Journal - $(date +%Y-%m-%d)
+
+## Today's Goals
+
+
+## Notes
+
+
+## Reflections
+
+EOF
+    fi
+    
+    echo -e "${GREEN}✅ Journal ready: $journal_file${NC}"
+    echo ""
+    echo "Contents:"
+    echo "---"
+    cat "$journal_file"
+    
+    # Open in editor if available
+    if [ -t 0 ] && [ -n "${EDITOR:-}" ]; then
+        echo ""
+        echo "Opening in editor..."
+        ${EDITOR} "$journal_file"
+    fi
+}
+
+cmd_memo() {
+    local content="$*"
+    
+    if [ -z "$content" ]; then
+        echo -e "${RED}Error: Memo content required${NC}" >&2
+        return 1
+    fi
+    
+    echo -e "${PURPLE}✍️ Creating quick memo...${NC}"
+    mkdir -p "$BAESREPS_NOTES_DIR/memos"
+    local memo_file="$BAESREPS_NOTES_DIR/memos/memo-$(date +%Y%m%d-%H%M%S).md"
+    echo "$content" > "$memo_file"
+    echo -e "${GREEN}✅ Memo saved: $memo_file${NC}"
+}
+
+cmd_list() {
+    local type="${1:-all}"
+    
+    echo -e "${PURPLE}📋 Notes:${NC}"
+    
+    case "$type" in
+        notes)
+            if ls "$BAESREPS_NOTES_DIR"/note-*.md >/dev/null 2>&1; then
+                for note in "$BAESREPS_NOTES_DIR"/note-*.md; do
+                    echo -e "  📝 ${CYAN}$(basename "$note")${NC}"
+                done
+            else
+                echo "  No notes found"
+            fi
+            ;;
+        journal)
+            if [ -d "$BAESREPS_NOTES_DIR/journal" ] && ls "$BAESREPS_NOTES_DIR/journal"/*.md >/dev/null 2>&1; then
+                for entry in "$BAESREPS_NOTES_DIR/journal"/*.md; do
+                    if [ -f "$entry" ]; then
+                        echo -e "  📖 ${CYAN}$(basename "$entry")${NC}"
+                    fi
+                done
+            else
+                echo "  No journal entries found"
+            fi
+            ;;
+        memos)
+            if [ -d "$BAESREPS_NOTES_DIR/memos" ] && ls "$BAESREPS_NOTES_DIR/memos"/*.md >/dev/null 2>&1; then
+                for memo in "$BAESREPS_NOTES_DIR/memos"/*.md; do
+                    if [ -f "$memo" ]; then
+                        echo -e "  ✍️ ${CYAN}$(basename "$memo")${NC}"
+                    fi
+                done
+            else
+                echo "  No memos found"
+            fi
+            ;;
+        all|*)
+            echo ""
+            echo "Notes:"
+            if ls "$BAESREPS_NOTES_DIR"/note-*.md >/dev/null 2>&1; then
+                for note in "$BAESREPS_NOTES_DIR"/note-*.md; do
+                    echo -e "  📝 ${CYAN}$(basename "$note")${NC}"
+                done
+            else
+                echo "  No notes found"
+            fi
+            
+            echo ""
+            echo "Journal Entries:"
+            if [ -d "$BAESREPS_NOTES_DIR/journal" ] && ls "$BAESREPS_NOTES_DIR/journal"/*.md >/dev/null 2>&1; then
+                for entry in "$BAESREPS_NOTES_DIR/journal"/*.md; do
+                    echo -e "  📖 ${CYAN}$(basename "$entry")${NC}"
+                done
+            else
+                echo "  No journal entries found"
+            fi
+            
+            echo ""
+            echo "Memos:"
+            if [ -d "$BAESREPS_NOTES_DIR/memos" ] && ls "$BAESREPS_NOTES_DIR/memos"/*.md >/dev/null 2>&1; then
+                for memo in "$BAESREPS_NOTES_DIR/memos"/*.md; do
+                    echo -e "  ✍️ ${CYAN}$(basename "$memo")${NC}"
+                done
+            else
+                echo "  No memos found"
+            fi
+            ;;
+    esac
+}
+
+cmd_show() {
+    local filename="$1"
+    
+    if [ -z "$filename" ]; then
+        echo "Usage: baesreps-note show <filename>"
+        return 1
+    fi
+    
+    # Search in various locations
+    local found=""
+    for path in "$BAESREPS_NOTES_DIR/$filename" "$BAESREPS_NOTES_DIR/journal/$filename" "$BAESREPS_NOTES_DIR/memos/$filename"; do
+        if [ -f "$path" ]; then
+            found="$path"
+            break
+        fi
+    done
+    
+    if [ -z "$found" ]; then
+        echo -e "${RED}Note not found: $filename${NC}"
+        return 1
+    fi
+    
+    echo -e "${PURPLE}📄 $(basename "$found")${NC}"
+    echo "---"
+    cat "$found"
+}
+
+cmd_search() {
+    local query="$*"
+    
+    if [ -z "$query" ]; then
+        echo "Usage: baesreps-note search <query>"
+        return 1
+    fi
+    
+    echo -e "${PURPLE}🔍 Searching for: $query${NC}"
+    echo ""
+    
+    if [ -d "$BAESREPS_NOTES_DIR" ]; then
+        grep -r -l "$query" "$BAESREPS_NOTES_DIR" 2>/dev/null | while read -r file; do
+            echo -e "  ${CYAN}$(basename "$file")${NC}"
+            grep -n "$query" "$file" | head -3 | sed 's/^/    /'
+            echo ""
+        done
+    else
+        echo "  No matches found"
+    fi
+}
+
+show_help() {
+    echo -e "${PURPLE}💜 .baesreps Note Creator${NC}"
+    echo "Create notes, journals, and memos"
+    echo ""
+    echo "Usage: baesreps-note <command> [args]"
+    echo ""
+    echo "Commands:"
+    echo "  create <text>          - Create a note"
+    echo "  journal                - Open today's journal"
+    echo "  memo <text>            - Quick memo"
+    echo "  list [type]            - List notes (all|notes|journal|memos)"
+    echo "  show <filename>        - Show note contents"
+    echo "  search <query>         - Search notes"
+    echo "  help                   - Show this help"
+    echo ""
+    echo "Examples:"
+    echo "  baesreps-note create \"Remember to check the vault\""
+    echo "  baesreps-note journal"
+    echo "  baesreps-note memo \"Quick thought\""
+    echo "  baesreps-note list journal"
+    echo "  baesreps-note search \"important\""
+}
+
+# =============================================================================
+# MAIN
+# =============================================================================
+
+main() {
+    local cmd="${1:-help}"
+    shift 2>/dev/null || true
+    
+    case "$cmd" in
+        create)
+            cmd_create "$@"
+            ;;
+        journal)
+            cmd_journal "$@"
+            ;;
+        memo)
+            cmd_memo "$@"
+            ;;
+        list)
+            cmd_list "$@"
+            ;;
+        show|get|read)
+            cmd_show "$@"
+            ;;
+        search|find)
+            cmd_search "$@"
+            ;;
+        help|--help|-h)
+            show_help
+            ;;
+        *)
+            echo "Unknown command: $cmd"
+            echo "Run 'baesreps-note help' for usage."
+            exit 1
+            ;;
+    esac
+}
+
+main "$@"

@@ -12,6 +12,8 @@ unset file
 
 # Initialize .baesreps directories if they don't exist
 if [ -n "$BAESREPS_HOME" ]; then
+	mkdir -p "$BAESREPS_PROJECTS_DIR" 2>/dev/null
+	mkdir -p "$BAESREPS_CARDS_DIR" 2>/dev/null
 	mkdir -p "$BAESREPS_SECRETS_DIR" 2>/dev/null
 	mkdir -p "$BAESREPS_VAULTS_DIR" 2>/dev/null
 	mkdir -p "$BAESREPS_REPS_DIR" 2>/dev/null
@@ -40,6 +42,6 @@ fi
 # Welcome message (only for interactive shells)
 if [[ $- == *i* ]]; then
 	echo "💜 .baesreps loaded - Reps derived from Bae's Secrets"
-	echo "   Type 'baesreps-status' to see your environment status"
-	echo "   Type 'baesreps-init' to initialize directories"
+	echo "   Type 'baesreps status' to see your environment status"
+	echo "   Type 'baesreps init' to initialize directories"
 fi
