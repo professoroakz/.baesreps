@@ -1,0 +1,269 @@
+#!/usr/bin/env bash
+# baesreps-vault - Vault management executable for .baesreps
+# Manage secure vaults for organizing secrets and projects
+#
+# Usage: baesreps-vault <command> [args]
+
+set -e
+
+BAESREPS_VAULTS_DIR="${BAESREPS_VAULTS_DIR:-$HOME/vaults}"
+
+# Color codes
+PURPLE='\033[0;35m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+CYAN='\033[0;36m'
+RED='\033[0;31m'
+NC='\033[0m'
+
+# =============================================================================
+# INPUT VALIDATION
+# =============================================================================
+
+validate_name() {
+    local name="$1"
+    if [ -z "$name" ]; then
+        echo -e "${RED}Error: Name cannot be empty${NC}" >&2
+        return 1
+    fi
+    if [[ "$name" == *".."* ]] || [[ "$name" == *"/"* ]] || [[ "$name" == *"\\"* ]]; then
+        echo -e "${RED}Error: Name cannot contain path traversal characters${NC}" >&2
+        return 1
+    fi
+    if [[ "$name" =~ [^a-zA-Z0-9_-] ]]; then
+        echo -e "${RED}Error: Name can only contain alphanumeric characters, underscores, and hyphens${NC}" >&2
+        return 1
+    fi
+    return 0
+}
+
+json_escape() {
+    local str="$1"
+    str="${str//\\/\\\\}"
+    str="${str//\"/\\\"}"
+    printf '%s' "$str"
+}
+
+# =============================================================================
+# COMMANDS
+# =============================================================================
+
+cmd_create() {
+    local name="$1"
+    
+    if ! validate_name "$name"; then
+        return 1
+    fi
+    
+    if [ -d "$BAESREPS_VAULTS_DIR/$name" ]; then
+        echo -e "${YELLOW}⚠️  Vault already exists: $name${NC}"
+        return 1
+    fi
+    
+    local escaped_name=$(json_escape "$name")
+    echo -e "${PURPLE}🔐 Creating vault: $name${NC}"
+    mkdir -p "$BAESREPS_VAULTS_DIR/$name"
+    printf '{"name": "%s", "status": "locked", "created": "%s"}\n' "$escaped_name" "$(date -Iseconds)" > "$BAESREPS_VAULTS_DIR/$name/vault.json"
+    echo -e "${GREEN}✅ Vault created: $name${NC}"
+}
+
+cmd_list() {
+    echo -e "${PURPLE}🗄️ Available Vaults:${NC}"
+    if [ -d "$BAESREPS_VAULTS_DIR" ]; then
+        local found=0
+        for vault_dir in "$BAESREPS_VAULTS_DIR"/*/; do
+            if [ -f "${vault_dir}vault.json" ]; then
+                local name=$(basename "$vault_dir")
+                local json_content=$(cat "${vault_dir}vault.json" | tr '\n' ' ')
+                local status=$(echo "$json_content" | grep -oP '"status"\s*:\s*"\K[^"]+' || echo "unknown")
+                local icon="🔒"
+                [ "$status" = "unlocked" ] && icon="🔓"
+                echo -e "  $icon ${CYAN}$name${NC} [$status]"
+                found=1
+            fi
+        done
+        if [ $found -eq 0 ]; then
+            echo "  No vaults found"
+        fi
+    else
+        echo "  No vaults found"
+    fi
+}
+
+cmd_unlock() {
+    local name="$1"
+    
+    if [ -z "$name" ]; then
+        echo "Usage: baesreps-vault unlock <name>"
+        return 1
+    fi
+    
+    if ! validate_name "$name"; then
+        return 1
+    fi
+    
+    if [ -d "$BAESREPS_VAULTS_DIR/$name" ]; then
+        # Update status to unlocked
+        local tmp_file=$(mktemp)
+        sed 's/"status":"[^"]*"/"status":"unlocked"/' "$BAESREPS_VAULTS_DIR/$name/vault.json" > "$tmp_file"
+        mv "$tmp_file" "$BAESREPS_VAULTS_DIR/$name/vault.json"
+        
+        export BAESREPS_CURRENT_VAULT="$name"
+        echo -e "${GREEN}🔓 Unlocked vault: $name${NC}"
+        echo "   Location: $BAESREPS_VAULTS_DIR/$name"
+        echo ""
+        echo "   Tip: Run 'cd $BAESREPS_VAULTS_DIR/$name' to enter the vault"
+    else
+        echo -e "${RED}Vault not found: $name${NC}"
+        return 1
+    fi
+}
+
+cmd_lock() {
+    local name="$1"
+    
+    # If no name provided, lock the current vault
+    if [ -z "$name" ]; then
+        if [ -n "$BAESREPS_CURRENT_VAULT" ]; then
+            name="$BAESREPS_CURRENT_VAULT"
+        else
+            echo -e "${YELLOW}No vault currently unlocked${NC}"
+            return 0
+        fi
+    fi
+    
+    if ! validate_name "$name"; then
+        return 1
+    fi
+    
+    if [ -f "$BAESREPS_VAULTS_DIR/$name/vault.json" ]; then
+        # Update status to locked
+        local tmp_file=$(mktemp)
+        sed 's/"status":"[^"]*"/"status":"locked"/' "$BAESREPS_VAULTS_DIR/$name/vault.json" > "$tmp_file"
+        mv "$tmp_file" "$BAESREPS_VAULTS_DIR/$name/vault.json"
+        
+        if [ "$BAESREPS_CURRENT_VAULT" = "$name" ]; then
+            unset BAESREPS_CURRENT_VAULT
+        fi
+        
+        echo -e "${PURPLE}🔒 Locked vault: $name${NC}"
+    else
+        echo -e "${RED}Vault not found: $name${NC}"
+        return 1
+    fi
+}
+
+cmd_status() {
+    local name="$1"
+    
+    if [ -z "$name" ]; then
+        echo "Usage: baesreps-vault status <name>"
+        return 1
+    fi
+    
+    if ! validate_name "$name"; then
+        return 1
+    fi
+    
+    if [ -f "$BAESREPS_VAULTS_DIR/$name/vault.json" ]; then
+        echo -e "${PURPLE}🔐 Vault: $name${NC}"
+        echo "---"
+        cat "$BAESREPS_VAULTS_DIR/$name/vault.json"
+        echo ""
+        
+        # List contents
+        echo -e "${CYAN}Contents:${NC}"
+        ls -la "$BAESREPS_VAULTS_DIR/$name" 2>/dev/null | tail -n +4 || echo "  Empty"
+    else
+        echo -e "${RED}Vault not found: $name${NC}"
+        return 1
+    fi
+}
+
+cmd_delete() {
+    local name="$1"
+    
+    if [ -z "$name" ]; then
+        echo "Usage: baesreps-vault delete <name>"
+        return 1
+    fi
+    
+    if ! validate_name "$name"; then
+        return 1
+    fi
+    
+    if [ -d "$BAESREPS_VAULTS_DIR/$name" ]; then
+        echo -e "${RED}🗑️ Deleting vault: $name${NC}"
+        rm -rf "$BAESREPS_VAULTS_DIR/$name"
+        
+        if [ "$BAESREPS_CURRENT_VAULT" = "$name" ]; then
+            unset BAESREPS_CURRENT_VAULT
+        fi
+        
+        echo -e "${GREEN}✅ Vault deleted${NC}"
+    else
+        echo -e "${RED}Vault not found: $name${NC}"
+        return 1
+    fi
+}
+
+show_help() {
+    echo -e "${PURPLE}💜 .baesreps Vault Manager${NC}"
+    echo "Manage secure vaults for organizing secrets and projects"
+    echo ""
+    echo "Usage: baesreps-vault <command> [args]"
+    echo ""
+    echo "Commands:"
+    echo "  create <name>  - Create a new vault"
+    echo "  list           - List all vaults"
+    echo "  unlock <name>  - Unlock a vault"
+    echo "  lock [name]    - Lock a vault (current if not specified)"
+    echo "  status <name>  - Show vault status"
+    echo "  delete <name>  - Delete a vault"
+    echo "  help           - Show this help"
+    echo ""
+    echo "Examples:"
+    echo "  baesreps-vault create personal"
+    echo "  baesreps-vault unlock personal"
+    echo "  baesreps-vault lock"
+}
+
+# =============================================================================
+# MAIN
+# =============================================================================
+
+main() {
+    local cmd="${1:-help}"
+    shift 2>/dev/null || true
+    
+    case "$cmd" in
+        create)
+            cmd_create "$@"
+            ;;
+        list)
+            cmd_list "$@"
+            ;;
+        unlock|open)
+            cmd_unlock "$@"
+            ;;
+        lock|close)
+            cmd_lock "$@"
+            ;;
+        status|get)
+            cmd_status "$@"
+            ;;
+        delete|remove)
+            cmd_delete "$@"
+            ;;
+        help|--help|-h)
+            show_help
+            ;;
+        *)
+            echo "Unknown command: $cmd"
+            echo "Run 'baesreps-vault help' for usage."
+            exit 1
+            ;;
+    esac
+}
+
+main "$@"

@@ -8,6 +8,12 @@
 # .baesreps home directory
 export BAESREPS_HOME="$HOME/.baesreps"
 
+# Projects directory (for tracking work)
+export BAESREPS_PROJECTS_DIR="$HOME/projects"
+
+# Cards directory (minimal work units with points)
+export BAESREPS_CARDS_DIR="$HOME/cards"
+
 # Secrets configuration directory
 export BAESREPS_SECRETS_DIR="$HOME/secrets"
 

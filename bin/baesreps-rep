@@ -1,0 +1,213 @@
+#!/usr/bin/env bash
+# baesreps-rep - Rep management executable for .baesreps
+# Manage reps (routines/repetitions/workflows)
+#
+# Usage: baesreps-rep <command> [args]
+
+set -e
+
+BAESREPS_REPS_DIR="${BAESREPS_REPS_DIR:-$HOME/reps}"
+
+# Color codes
+PURPLE='\033[0;35m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+CYAN='\033[0;36m'
+RED='\033[0;31m'
+NC='\033[0m'
+
+# =============================================================================
+# INPUT VALIDATION
+# =============================================================================
+
+json_escape() {
+    local str="$1"
+    str="${str//\\/\\\\}"
+    str="${str//\"/\\\"}"
+    printf '%s' "$str"
+}
+
+# =============================================================================
+# COMMANDS
+# =============================================================================
+
+cmd_create() {
+    local name="$*"
+    
+    if [ -z "$name" ]; then
+        echo -e "${RED}Error: Rep name required${NC}" >&2
+        return 1
+    fi
+    
+    local rep_id=$(date +%s)
+    local escaped_name=$(json_escape "$name")
+    
+    echo -e "${PURPLE}📝 Creating rep: $name (ID: $rep_id)${NC}"
+    mkdir -p "$BAESREPS_REPS_DIR"
+    printf '{"id": "%s", "name": "%s", "status": "pending", "created": "%s"}\n' "$rep_id" "$escaped_name" "$(date -Iseconds)" > "$BAESREPS_REPS_DIR/$rep_id.json"
+    echo -e "${GREEN}✅ Rep created: $rep_id${NC}"
+}
+
+cmd_list() {
+    echo -e "${PURPLE}📋 Reps:${NC}"
+    
+    if [ ! -d "$BAESREPS_REPS_DIR" ]; then
+        echo "  No reps found"
+        return 0
+    fi
+    
+    local found=0
+    while IFS= read -r -d '' rep; do
+        local json_content=$(cat "$rep" | tr '\n' ' ')
+        local rep_id=$(echo "$json_content" | grep -oP '"id"\s*:\s*"\K[^"]+')
+        local rep_name=$(echo "$json_content" | grep -oP '"name"\s*:\s*"\K[^"]+')
+        local rep_status=$(echo "$json_content" | grep -oP '"status"\s*:\s*"\K[^"]+')
+        
+        local status_icon="⏳"
+        case "$rep_status" in
+            completed) status_icon="✅" ;;
+            running) status_icon="🔄" ;;
+            failed) status_icon="❌" ;;
+        esac
+        
+        echo -e "  $status_icon ${CYAN}$rep_id${NC}: $rep_name [$rep_status]"
+        found=1
+    done < <(find "$BAESREPS_REPS_DIR" -maxdepth 1 -name "*.json" -print0 2>/dev/null)
+    
+    if [ $found -eq 0 ]; then
+        echo "  No reps found"
+    fi
+}
+
+cmd_execute() {
+    local rep_id="$1"
+    
+    if [ -z "$rep_id" ]; then
+        echo "Usage: baesreps-rep execute <rep-id>"
+        return 1
+    fi
+    
+    local rep_file="$BAESREPS_REPS_DIR/$rep_id.json"
+    
+    if [ ! -f "$rep_file" ]; then
+        echo -e "${RED}Rep not found: $rep_id${NC}"
+        return 1
+    fi
+    
+    local rep_name=$(grep -o '"name":"[^"]*"' "$rep_file" | cut -d: -f2 | tr -d '"')
+    
+    echo -e "${PURPLE}🚀 Executing rep: $rep_name${NC}"
+    
+    # Update status to running
+    local tmp_file=$(mktemp)
+    sed 's/"status":"[^"]*"/"status":"running"/' "$rep_file" > "$tmp_file"
+    mv "$tmp_file" "$rep_file"
+    
+    # Simulate execution (placeholder)
+    sleep 1
+    
+    # Update status to completed
+    tmp_file=$(mktemp)
+    sed -e 's/"status":"[^"]*"/"status":"completed"/' "$rep_file" > "$tmp_file"
+    mv "$tmp_file" "$rep_file"
+    
+    echo -e "${GREEN}✅ Rep completed: $rep_id${NC}"
+}
+
+cmd_status() {
+    local rep_id="$1"
+    
+    if [ -z "$rep_id" ]; then
+        echo "Usage: baesreps-rep status <rep-id>"
+        return 1
+    fi
+    
+    local rep_file="$BAESREPS_REPS_DIR/$rep_id.json"
+    
+    if [ ! -f "$rep_file" ]; then
+        echo -e "${RED}Rep not found: $rep_id${NC}"
+        return 1
+    fi
+    
+    echo -e "${PURPLE}📝 Rep: $rep_id${NC}"
+    echo "---"
+    cat "$rep_file"
+    echo ""
+}
+
+cmd_delete() {
+    local rep_id="$1"
+    
+    if [ -z "$rep_id" ]; then
+        echo "Usage: baesreps-rep delete <rep-id>"
+        return 1
+    fi
+    
+    local rep_file="$BAESREPS_REPS_DIR/$rep_id.json"
+    
+    if [ ! -f "$rep_file" ]; then
+        echo -e "${RED}Rep not found: $rep_id${NC}"
+        return 1
+    fi
+    
+    echo -e "${RED}🗑️ Deleting rep: $rep_id${NC}"
+    rm -f "$rep_file"
+    echo -e "${GREEN}✅ Rep deleted${NC}"
+}
+
+show_help() {
+    echo -e "${PURPLE}💜 .baesreps Rep Manager${NC}"
+    echo "Manage reps (routines/repetitions/workflows)"
+    echo ""
+    echo "Usage: baesreps-rep <command> [args]"
+    echo ""
+    echo "Commands:"
+    echo "  create <name>   - Create a new rep"
+    echo "  list            - List all reps"
+    echo "  execute <id>    - Execute a rep"
+    echo "  status <id>     - Show rep status"
+    echo "  delete <id>     - Delete a rep"
+    echo "  help            - Show this help"
+    echo ""
+    echo "Examples:"
+    echo "  baesreps-rep create \"Morning routine\""
+    echo "  baesreps-rep list"
+    echo "  baesreps-rep execute 1234567890"
+}
+
+# =============================================================================
+# MAIN
+# =============================================================================
+
+main() {
+    local cmd="${1:-help}"
+    shift 2>/dev/null || true
+    
+    case "$cmd" in
+        create)
+            cmd_create "$@"
+            ;;
+        list)
+            cmd_list "$@"
+            ;;
+        execute|run)
+            cmd_execute "$@"
+            ;;
+        status|get)
+            cmd_status "$@"
+            ;;
+        delete|remove)
+            cmd_delete "$@"
+            ;;
+        help|--help|-h)
+            show_help
+            ;;
+        *)
+            echo "Unknown command: $cmd"
+            echo "Run 'baesreps-rep help' for usage."
+            exit 1
+            ;;
+    esac
+}
+
+main "$@"
