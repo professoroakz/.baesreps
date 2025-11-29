@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+# .baesreps aliases - Reps derived from Bae's Secrets
+# Shortcuts for managing secrets, vaults, and personal workflows
+
+# =============================================================================
+# SECRET MANAGEMENT
+# =============================================================================
+
+# Navigate to secret directories
+alias secrets="cd ~/secrets"
+alias vaults="cd ~/vaults"
+alias reps="cd ~/reps"
+alias notes="cd ~/notes"
+
+# Secret shortcuts
+alias stash="baesreps-secret stash"
+alias list-secrets="baesreps-secret list"
+alias secret-status="baesreps-secret status"
+
+# =============================================================================
+# VAULT MANAGEMENT
+# =============================================================================
+
+# Vault navigation and control
+alias unlock="baesreps-vault unlock"
+alias lock="baesreps-vault lock"
+alias list-vaults="baesreps-vault list"
+
+# =============================================================================
+# REP EXECUTION
+# =============================================================================
+
+# Rep management for routines
+alias run="baesreps-rep execute"
+alias list-reps="baesreps-rep list"
+
+# =============================================================================
+# NOTES & JOURNALING
+# =============================================================================
+
+# Note creation shortcuts
+alias jot="baesreps-note create"
+alias journal="baesreps-note journal"
+alias memo="baesreps-note memo"
+
+# =============================================================================
+# GIT SHORTCUTS (for version control)
+# =============================================================================
+
+alias g="git"
+alias gs="git status"
+alias ga="git add"
+alias gc="git commit"
+alias gp="git push"
+alias gl="git log --oneline -20"
+
+# =============================================================================
+# SHELL UTILITIES
+# =============================================================================
+
+# Navigation
+alias ..="cd .."
+alias ...="cd ../.."
+alias ~="cd ~"
+
+# Colorized output
+alias grep='grep --color=auto'
+alias ls='ls --color=auto'
+alias l='ls -lah'
+alias la='ls -lAh'
+
+# Reload shell configuration
+alias reload="source ~/.bash_profile"
+
+# Print PATH entries
+alias path='echo -e ${PATH//:/\\n}'

@@ -1,0 +1,225 @@
+#!/usr/bin/env bash
+# .baesreps functions - Helper functions for Bae's Secrets & Reps
+
+# =============================================================================
+# SECRET FUNCTIONS
+# =============================================================================
+
+# Manage secrets
+function baesreps-secret() {
+	local cmd="${1:-help}"
+	shift
+
+	case "$cmd" in
+		stash)
+			echo "🔒 Stashing secret: $1"
+			mkdir -p "$BAESREPS_SECRETS_DIR/$1"
+			echo '{"name": "'$1'", "status": "stashed", "created": "'$(date -Iseconds)'"}' > "$BAESREPS_SECRETS_DIR/$1/meta.json"
+			;;
+		list)
+			echo "📋 Stashed Secrets:"
+			ls -1 "$BAESREPS_SECRETS_DIR" 2>/dev/null || echo "  No secrets found"
+			;;
+		status)
+			if [ -n "$1" ]; then
+				cat "$BAESREPS_SECRETS_DIR/$1/meta.json" 2>/dev/null || echo "Secret not found: $1"
+			else
+				echo "Usage: baesreps-secret status <secret-name>"
+			fi
+			;;
+		shred)
+			if [ -n "$1" ]; then
+				echo "🗑️ Shredding secret: $1"
+				rm -rf "$BAESREPS_SECRETS_DIR/$1"
+			else
+				echo "Usage: baesreps-secret shred <secret-name>"
+			fi
+			;;
+		*)
+			echo "💜 .baesreps Secret Manager"
+			echo "Usage: baesreps-secret <command> [args]"
+			echo ""
+			echo "Commands:"
+			echo "  stash <name>   - Stash a new secret"
+			echo "  list           - List all secrets"
+			echo "  status <name>  - Show secret status"
+			echo "  shred <name>   - Remove a secret"
+			;;
+	esac
+}
+
+# =============================================================================
+# VAULT FUNCTIONS
+# =============================================================================
+
+# Manage vaults
+function baesreps-vault() {
+	local cmd="${1:-help}"
+	shift
+
+	case "$cmd" in
+		create)
+			echo "🔐 Creating vault: $1"
+			mkdir -p "$BAESREPS_VAULTS_DIR/$1"
+			echo '{"name": "'$1'", "status": "locked", "created": "'$(date -Iseconds)'"}' > "$BAESREPS_VAULTS_DIR/$1/vault.json"
+			;;
+		list)
+			echo "🗄️ Available Vaults:"
+			ls -1 "$BAESREPS_VAULTS_DIR" 2>/dev/null || echo "  No vaults found"
+			;;
+		unlock)
+			if [ -n "$1" ] && [ -d "$BAESREPS_VAULTS_DIR/$1" ]; then
+				export BAESREPS_CURRENT_VAULT="$1"
+				cd "$BAESREPS_VAULTS_DIR/$1"
+				echo "🔓 Unlocked vault: $1"
+			else
+				echo "Vault not found: $1"
+			fi
+			;;
+		lock)
+			unset BAESREPS_CURRENT_VAULT
+			cd "$HOME"
+			echo "🔒 Locked current vault"
+			;;
+		*)
+			echo "💜 .baesreps Vault Manager"
+			echo "Usage: baesreps-vault <command> [args]"
+			echo ""
+			echo "Commands:"
+			echo "  create <name>  - Create a new vault"
+			echo "  list           - List all vaults"
+			echo "  unlock <name>  - Unlock a vault"
+			echo "  lock           - Lock current vault"
+			;;
+	esac
+}
+
+# =============================================================================
+# REP FUNCTIONS
+# =============================================================================
+
+# Rep management (routines/repetitions)
+function baesreps-rep() {
+	local cmd="${1:-help}"
+	shift
+
+	case "$cmd" in
+		create)
+			local rep_id=$(date +%s)
+			echo "📝 Creating rep: $1 (ID: $rep_id)"
+			mkdir -p "$BAESREPS_REPS_DIR"
+			echo '{"id": "'$rep_id'", "name": "'$1'", "status": "pending", "created": "'$(date -Iseconds)'"}' > "$BAESREPS_REPS_DIR/$rep_id.json"
+			;;
+		list)
+			echo "📋 Reps:"
+			if ls "$BAESREPS_REPS_DIR"/*.json >/dev/null 2>&1; then
+				for rep in "$BAESREPS_REPS_DIR"/*.json; do
+					[ -f "$rep" ] && cat "$rep"
+				done
+			else
+				echo "  No reps found"
+			fi
+			;;
+		execute)
+			echo "🚀 Executing rep: $1"
+			# Placeholder for rep execution logic
+			;;
+		*)
+			echo "💜 .baesreps Rep Manager"
+			echo "Usage: baesreps-rep <command> [args]"
+			echo ""
+			echo "Commands:"
+			echo "  create <name>  - Create a new rep"
+			echo "  list           - List all reps"
+			echo "  execute <id>   - Execute a rep"
+			;;
+	esac
+}
+
+# =============================================================================
+# NOTE FUNCTIONS
+# =============================================================================
+
+# Note creation
+function baesreps-note() {
+	local cmd="${1:-help}"
+	shift
+
+	case "$cmd" in
+		create)
+			echo "📝 Creating note: $*"
+			mkdir -p "$BAESREPS_NOTES_DIR"
+			local note_file="$BAESREPS_NOTES_DIR/note-$(date +%Y%m%d-%H%M%S).md"
+			echo "# Note - $(date)" > "$note_file"
+			echo "" >> "$note_file"
+			echo "$*" >> "$note_file"
+			echo "Created: $note_file"
+			;;
+		journal)
+			echo "📖 Creating journal entry"
+			mkdir -p "$BAESREPS_NOTES_DIR/journal"
+			local journal_file="$BAESREPS_NOTES_DIR/journal/$(date +%Y-%m-%d).md"
+			echo "# Journal - $(date +%Y-%m-%d)" >> "$journal_file"
+			echo "" >> "$journal_file"
+			${EDITOR:-vim} "$journal_file"
+			;;
+		memo)
+			echo "✍️ Quick memo: $*"
+			mkdir -p "$BAESREPS_NOTES_DIR/memos"
+			local memo_file="$BAESREPS_NOTES_DIR/memos/memo-$(date +%Y%m%d-%H%M%S).md"
+			echo "$*" > "$memo_file"
+			echo "Memo saved: $memo_file"
+			;;
+		*)
+			echo "💜 .baesreps Note Creator"
+			echo "Usage: baesreps-note <type> [content]"
+			echo ""
+			echo "Types:"
+			echo "  create <text>  - Create a note"
+			echo "  journal        - Open journal for today"
+			echo "  memo <text>    - Quick memo"
+			;;
+	esac
+}
+
+# =============================================================================
+# UTILITY FUNCTIONS
+# =============================================================================
+
+# Create a directory and enter it
+function mkd() {
+	mkdir -p "$@" && cd "$_"
+}
+
+# Show .baesreps status
+function baesreps-status() {
+	echo "💜 .baesreps Status"
+	echo "==================="
+	echo ""
+	echo "📁 Directories:"
+	echo "  Home:    $BAESREPS_HOME"
+	echo "  Secrets: $BAESREPS_SECRETS_DIR"
+	echo "  Vaults:  $BAESREPS_VAULTS_DIR"
+	echo "  Reps:    $BAESREPS_REPS_DIR"
+	echo "  Notes:   $BAESREPS_NOTES_DIR"
+	echo ""
+	echo "🔒 Secrets: $(ls -1 "$BAESREPS_SECRETS_DIR" 2>/dev/null | wc -l)"
+	echo "🔐 Vaults:  $(ls -1 "$BAESREPS_VAULTS_DIR" 2>/dev/null | wc -l)"
+	echo "📝 Reps:    $(ls -1 "$BAESREPS_REPS_DIR"/*.json 2>/dev/null | wc -l)"
+	echo ""
+	if [ -n "$BAESREPS_CURRENT_VAULT" ]; then
+		echo "📍 Current Vault: $BAESREPS_CURRENT_VAULT"
+	fi
+}
+
+# Initialize .baesreps directories
+function baesreps-init() {
+	echo "💜 Initializing .baesreps environment..."
+	mkdir -p "$BAESREPS_SECRETS_DIR"
+	mkdir -p "$BAESREPS_VAULTS_DIR"
+	mkdir -p "$BAESREPS_REPS_DIR"
+	mkdir -p "$BAESREPS_NOTES_DIR"
+	mkdir -p "$BAESREPS_CACHE"
+	echo "✅ .baesreps environment initialized!"
+	baesreps-status
+}
