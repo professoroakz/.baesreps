@@ -20,6 +20,24 @@ NC='\033[0m'
 # INPUT VALIDATION
 # =============================================================================
 
+# Validate rep ID - only alphanumeric and hyphens allowed
+validate_rep_id() {
+    local id="$1"
+    if [ -z "$id" ]; then
+        echo -e "${RED}Error: Rep ID cannot be empty${NC}" >&2
+        return 1
+    fi
+    if [[ "$id" == *".."* ]] || [[ "$id" == *"/"* ]] || [[ "$id" == *"\\"* ]]; then
+        echo -e "${RED}Error: Rep ID cannot contain path traversal characters${NC}" >&2
+        return 1
+    fi
+    if [[ "$id" =~ [^a-zA-Z0-9_-] ]]; then
+        echo -e "${RED}Error: Rep ID can only contain alphanumeric characters, underscores, and hyphens${NC}" >&2
+        return 1
+    fi
+    return 0
+}
+
 json_escape() {
     local str="$1"
     str="${str//\\/\\\\}"
@@ -82,7 +100,7 @@ cmd_list() {
 cmd_execute() {
     local rep_id="$1"
     
-    if [ -z "$rep_id" ]; then
+    if ! validate_rep_id "$rep_id"; then
         echo "Usage: baesreps-rep execute <rep-id>"
         return 1
     fi
@@ -94,13 +112,14 @@ cmd_execute() {
         return 1
     fi
     
-    local rep_name=$(grep -o '"name":"[^"]*"' "$rep_file" | cut -d: -f2 | tr -d '"')
+    local json_content=$(cat "$rep_file" | tr '\n' ' ')
+    local rep_name=$(echo "$json_content" | grep -oP '"name"\s*:\s*"\K[^"]+')
     
     echo -e "${PURPLE}🚀 Executing rep: $rep_name${NC}"
     
     # Update status to running
     local tmp_file=$(mktemp)
-    sed 's/"status":"[^"]*"/"status":"running"/' "$rep_file" > "$tmp_file"
+    sed 's/"status"\s*:\s*"[^"]*"/"status": "running"/' "$rep_file" > "$tmp_file"
     mv "$tmp_file" "$rep_file"
     
     # Simulate execution (placeholder)
@@ -108,7 +127,7 @@ cmd_execute() {
     
     # Update status to completed
     tmp_file=$(mktemp)
-    sed -e 's/"status":"[^"]*"/"status":"completed"/' "$rep_file" > "$tmp_file"
+    sed -e 's/"status"\s*:\s*"[^"]*"/"status": "completed"/' "$rep_file" > "$tmp_file"
     mv "$tmp_file" "$rep_file"
     
     echo -e "${GREEN}✅ Rep completed: $rep_id${NC}"
@@ -117,7 +136,7 @@ cmd_execute() {
 cmd_status() {
     local rep_id="$1"
     
-    if [ -z "$rep_id" ]; then
+    if ! validate_rep_id "$rep_id"; then
         echo "Usage: baesreps-rep status <rep-id>"
         return 1
     fi
@@ -138,7 +157,7 @@ cmd_status() {
 cmd_delete() {
     local rep_id="$1"
     
-    if [ -z "$rep_id" ]; then
+    if ! validate_rep_id "$rep_id"; then
         echo "Usage: baesreps-rep delete <rep-id>"
         return 1
     fi
