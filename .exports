@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+# .baesreps exports - Environment variables for Bae's Secrets & Reps
+
+# =============================================================================
+# BAESREPS CORE CONFIGURATION
+# =============================================================================
+
+# .baesreps home directory
+export BAESREPS_HOME="$HOME/.baesreps"
+
+# Secrets configuration directory
+export BAESREPS_SECRETS_DIR="$HOME/secrets"
+
+# Vaults directory (secure storage)
+export BAESREPS_VAULTS_DIR="$HOME/vaults"
+
+# Reps directory (routines/repetitions)
+export BAESREPS_REPS_DIR="$HOME/reps"
+
+# Notes output directory
+export BAESREPS_NOTES_DIR="$HOME/notes"
+
+# =============================================================================
+# SECURITY CONFIGURATION
+# =============================================================================
+
+# Default encryption method
+export BAESREPS_ENCRYPTION="aes-256"
+
+# Vault timeout (seconds before auto-lock)
+export BAESREPS_VAULT_TIMEOUT=300
+
+# Secret cache directory
+export BAESREPS_CACHE="$HOME/.cache/baesreps"
+
+# =============================================================================
+# REP DEFAULTS
+# =============================================================================
+
+# Default rep type
+export BAESREPS_DEFAULT_REP="daily"
+
+# Rep communication format
+export BAESREPS_FORMAT="json"
+
+# Maximum concurrent reps
+export BAESREPS_MAX_REPS=10
+
+# Rep timeout (seconds)
+export BAESREPS_REP_TIMEOUT=300
+
+# =============================================================================
+# NOTE CREATION
+# =============================================================================
+
+# Default note format
+export BAESREPS_NOTE_FORMAT="markdown"
+
+# Journal entry prefix
+export BAESREPS_JOURNAL_PREFIX="journal"
+
+# =============================================================================
+# EDITOR & SHELL
+# =============================================================================
+
+# Make vim the default editor
+export EDITOR='vim'
+
+# Make Python use UTF-8 encoding
+export PYTHONIOENCODING='UTF-8'
+
+# Increase Bash history size
+export HISTSIZE='32768'
+export HISTFILESIZE="${HISTSIZE}"
+export HISTCONTROL='ignoreboth'
+
+# Prefer US English and use UTF-8
+export LANG='en_US.UTF-8'
+export LC_ALL='en_US.UTF-8'
+
+# =============================================================================
+# PATH CONFIGURATION
+# =============================================================================
+
+# Add baesreps bin to PATH
+export PATH="$BAESREPS_HOME/bin:$PATH"
+
+# Add local bin
+export PATH="$HOME/.local/bin:$PATH"
