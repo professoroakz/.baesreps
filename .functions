@@ -2,6 +2,37 @@
 # .baesreps functions - Helper functions for Bae's Secrets & Reps
 
 # =============================================================================
+# INPUT VALIDATION
+# =============================================================================
+
+# Validate name input - prevent path traversal and special characters
+_baesreps_validate_name() {
+	local name="$1"
+	if [ -z "$name" ]; then
+		echo "Error: Name cannot be empty" >&2
+		return 1
+	fi
+	if [[ "$name" == *".."* ]] || [[ "$name" == *"/"* ]] || [[ "$name" == *"\\"* ]]; then
+		echo "Error: Name cannot contain path traversal characters" >&2
+		return 1
+	fi
+	if [[ "$name" =~ [^a-zA-Z0-9_-] ]]; then
+		echo "Error: Name can only contain alphanumeric characters, underscores, and hyphens" >&2
+		return 1
+	fi
+	return 0
+}
+
+# Escape string for JSON
+_baesreps_json_escape() {
+	local str="$1"
+	# Escape backslashes, double quotes, and control characters
+	str="${str//\\/\\\\}"
+	str="${str//\"/\\\"}"
+	printf '%s' "$str"
+}
+
+# =============================================================================
 # SECRET FUNCTIONS
 # =============================================================================
 
@@ -12,9 +43,14 @@ function baesreps-secret() {
 
 	case "$cmd" in
 		stash)
-			echo "🔒 Stashing secret: $1"
-			mkdir -p "$BAESREPS_SECRETS_DIR/$1"
-			echo '{"name": "'$1'", "status": "stashed", "created": "'$(date -Iseconds)'"}' > "$BAESREPS_SECRETS_DIR/$1/meta.json"
+			if ! _baesreps_validate_name "$1"; then
+				return 1
+			fi
+			local name="$1"
+			local escaped_name=$(_baesreps_json_escape "$name")
+			echo "🔒 Stashing secret: $name"
+			mkdir -p "$BAESREPS_SECRETS_DIR/$name"
+			printf '{"name": "%s", "status": "stashed", "created": "%s"}\n' "$escaped_name" "$(date -Iseconds)" > "$BAESREPS_SECRETS_DIR/$name/meta.json"
 			;;
 		list)
 			echo "📋 Stashed Secrets:"
@@ -22,6 +58,9 @@ function baesreps-secret() {
 			;;
 		status)
 			if [ -n "$1" ]; then
+				if ! _baesreps_validate_name "$1"; then
+					return 1
+				fi
 				cat "$BAESREPS_SECRETS_DIR/$1/meta.json" 2>/dev/null || echo "Secret not found: $1"
 			else
 				echo "Usage: baesreps-secret status <secret-name>"
@@ -29,8 +68,16 @@ function baesreps-secret() {
 			;;
 		shred)
 			if [ -n "$1" ]; then
-				echo "🗑️ Shredding secret: $1"
-				rm -rf "$BAESREPS_SECRETS_DIR/$1"
+				if ! _baesreps_validate_name "$1"; then
+					return 1
+				fi
+				local name="$1"
+				if [ -d "$BAESREPS_SECRETS_DIR/$name" ]; then
+					echo "🗑️ Shredding secret: $name"
+					rm -rf "$BAESREPS_SECRETS_DIR/$name"
+				else
+					echo "Secret not found: $name"
+				fi
 			else
 				echo "Usage: baesreps-secret shred <secret-name>"
 			fi
@@ -59,21 +106,34 @@ function baesreps-vault() {
 
 	case "$cmd" in
 		create)
-			echo "🔐 Creating vault: $1"
-			mkdir -p "$BAESREPS_VAULTS_DIR/$1"
-			echo '{"name": "'$1'", "status": "locked", "created": "'$(date -Iseconds)'"}' > "$BAESREPS_VAULTS_DIR/$1/vault.json"
+			if ! _baesreps_validate_name "$1"; then
+				return 1
+			fi
+			local name="$1"
+			local escaped_name=$(_baesreps_json_escape "$name")
+			echo "🔐 Creating vault: $name"
+			mkdir -p "$BAESREPS_VAULTS_DIR/$name"
+			printf '{"name": "%s", "status": "locked", "created": "%s"}\n' "$escaped_name" "$(date -Iseconds)" > "$BAESREPS_VAULTS_DIR/$name/vault.json"
 			;;
 		list)
 			echo "🗄️ Available Vaults:"
 			ls -1 "$BAESREPS_VAULTS_DIR" 2>/dev/null || echo "  No vaults found"
 			;;
 		unlock)
-			if [ -n "$1" ] && [ -d "$BAESREPS_VAULTS_DIR/$1" ]; then
-				export BAESREPS_CURRENT_VAULT="$1"
-				cd "$BAESREPS_VAULTS_DIR/$1"
-				echo "🔓 Unlocked vault: $1"
+			if [ -n "$1" ]; then
+				if ! _baesreps_validate_name "$1"; then
+					return 1
+				fi
+				local name="$1"
+				if [ -d "$BAESREPS_VAULTS_DIR/$name" ]; then
+					export BAESREPS_CURRENT_VAULT="$name"
+					cd "$BAESREPS_VAULTS_DIR/$name"
+					echo "🔓 Unlocked vault: $name"
+				else
+					echo "Vault not found: $name"
+				fi
 			else
-				echo "Vault not found: $1"
+				echo "Usage: baesreps-vault unlock <name>"
 			fi
 			;;
 		lock)
@@ -105,10 +165,15 @@ function baesreps-rep() {
 
 	case "$cmd" in
 		create)
+			if [ -z "$1" ]; then
+				echo "Error: Rep name cannot be empty" >&2
+				return 1
+			fi
 			local rep_id=$(date +%s)
+			local escaped_name=$(_baesreps_json_escape "$1")
 			echo "📝 Creating rep: $1 (ID: $rep_id)"
 			mkdir -p "$BAESREPS_REPS_DIR"
-			echo '{"id": "'$rep_id'", "name": "'$1'", "status": "pending", "created": "'$(date -Iseconds)'"}' > "$BAESREPS_REPS_DIR/$rep_id.json"
+			printf '{"id": "%s", "name": "%s", "status": "pending", "created": "%s"}\n' "$rep_id" "$escaped_name" "$(date -Iseconds)" > "$BAESREPS_REPS_DIR/$rep_id.json"
 			;;
 		list)
 			echo "📋 Reps:"

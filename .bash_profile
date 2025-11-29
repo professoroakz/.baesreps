@@ -37,7 +37,9 @@ if type _git &>/dev/null; then
 	complete -o default -o nospace -F _git g
 fi
 
-# Welcome message
-echo "💜 .baesreps loaded - Reps derived from Bae's Secrets"
-echo "   Type 'baesreps-status' to see your environment status"
-echo "   Type 'baesreps-init' to initialize directories"
+# Welcome message (only for interactive shells)
+if [[ $- == *i* ]]; then
+	echo "💜 .baesreps loaded - Reps derived from Bae's Secrets"
+	echo "   Type 'baesreps-status' to see your environment status"
+	echo "   Type 'baesreps-init' to initialize directories"
+fi
